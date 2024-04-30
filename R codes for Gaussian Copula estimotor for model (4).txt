@@ -1,7 +1,7 @@
 ## The following R codes are for Gaussian copula estimators of model (4). By running this code, 
 ## the last three column of Table 1 for n=400 in the paper can be derived.
 ## The R codes for normal estimator and for the other models can be similarly derived. 
-
+## If you have any questions, please contact Fei Qin via 15717413159@163.com
 
 rm(list=ls())
 library(MASS)
@@ -10,11 +10,11 @@ library(GA)
 library(Matrix)
 
 
-####################################################################################
+###################################################################################################################################
 ##   data generation function
 ##   N: the sample size, k: random seed number, dim_cov: the dimension of covariates
 ##   mu0/1: mean of zeta_0/1(X); sigma0/1: covariance of zeta_0/1(X)                                
-####################################################################################
+###################################################################################################################################
 
 data.gen<-function(N,k,dim_cov,mu0,sigma0,mu1,sigma1)
 {
@@ -55,9 +55,9 @@ sigma1[1,2]=sigma1[2,1] <-0.5                            ## covariance of zeta_1
 
  
 
-###########################################################################################
+######################################################################################################################################
 ##   obtain the ture A0,A1, the collection of all sufficient adjustment sets for both groups                             
-###########################################################################################
+######################################################################################################################################
 covx <- diag(1,dim_cov)
 covx0 <- covx1 <- covx           ## for model (4), to obtain A0/A1,we can let the covariance of 
                                                  ## covariates conditional on T be this for simplicity
@@ -93,17 +93,17 @@ for (i in 1:(2^dim_cov-1))
 }
 f0.true[2^dim_cov] <-(svd(t(MY0)%*%covx0%*%MT)$d)[1]+(svd(t(MY0)%*%covx1%*%MT)$d)[1]     ## the true value of f_0(empty set) 
                                                                                                                                                                    ##defined below (15) in this paper
-activeset0.index <- which(f0.true==0)                                                   ## A0 which contains the indices of all sufficient adjustment sets 
+activeset0.index <- which(f0.true==0)                                    ## A0 which contains the indices of all sufficient adjustment sets 
 f1.true[2^dim_cov] <- (svd(t(MY1)%*%covx0%*%MT)$d)[1]+(svd(t(MY1)%*%covx1%*%MT)$d)[1]    ## the true value of f_1(empty set) 
                                                                                                                                                                    ##defined below (15) in this paper
-activeset1.index <- which(f1.true==0)                                                   ## A1
+activeset1.index <- which(f1.true==0)                                    ## A1
 
 
 
-######################################################################################################
+##################################################################################################################################
 ##   transform a candidate set (a vector of length p with 0/1 elements) 
 ##   to the  decimal representation                                      
-######################################################################################################
+##################################################################################################################################
 activeset2decimal <- function(set)
 {
   decimalvalue <- 0
@@ -120,11 +120,11 @@ index.Z1 <-index.Z0 <-activeset2decimal(c(1,2))      ## for model (4), the decim
 
 
 
-#########################################################################################
+###############################################################################################################################################
 ##  obtain zeta_i,s(t) defined in Sec 4 of this paper, used for Gaussian copula estimators
 ##  x is a vector representing the observations of the ith covariate
 ##  t is the value to be evaluated                                     
-#########################################################################################
+###############################################################################################################################################
 
 transformfun <- function(t,x) ## x is the n samples of the covariate, evaluated at t
 {
@@ -134,12 +134,12 @@ transformfun <- function(t,x) ## x is the n samples of the covariate, evaluated 
   return(qnorm(Ftuta))
 }
 
-#########################################################################################
+###############################################################################################################################################
 ##  obtain (a,b) defined in (20) in Sec 4 of this paper, used for Gaussian copula estimators 
 ##  x in the following function represents zeta_i,0(X_i) in (20) in this paper
 ##  y in the following function represents zeta_i,1(X_i) in (20) in this paper   
 ##  a in the following function is the threshold for truncation                               
-#########################################################################################
+###############################################################################################################################################
 find_truncated_minimizer <- function(x, y, a) {
   n <- length(x)
   objective <- function(theta) {
@@ -155,13 +155,13 @@ find_truncated_minimizer <- function(x, y, a) {
 
 
 
-#########################################################################################
+###############################################################################################################################################
 ##  obtain the sum for each individual combination of the elements in the vector,
 ## used for the next part
 ##  vector in the following function is a vector to be evaluated
 ##  include_full in the following function is a binary indicator of whether including 
 ##  the sum of the whole vector                               
-#########################################################################################
+###############################################################################################################################################
 calculate_combination_sums <- function(vector,include_full) {
   # Get the length of the vector
   n <- length(vector)
@@ -188,10 +188,10 @@ calculate_combination_sums <- function(vector,include_full) {
 }
 
 
-######################################################################################################
+############################################################################################################################################
 ##  obtain the dicimal representation of all the candidate sets including the ith covariate X_i 
 ## used when verifying if a covariate is a collider                         
-######################################################################################################
+###########################################################################################################################################
 twopowervec <- c()
 for (i in 1:dim_cov) {twopowervec <- c(twopowervec,2^(i-1))}
 candidatesetincludeXi <- vector("list", dim_cov)
@@ -202,9 +202,9 @@ for (jj in 1:dim_cov)
 
 
 
-######################################################################################################
+###########################################################################################################################################
 ##   discretize y into H slices, used for Sliced inverse regression (SIR) estimator                                     
-######################################################################################################
+###########################################################################################################################################
 
 slicing<-function(y,H) 
 {
@@ -244,10 +244,10 @@ slicing<-function(y,H)
 }
 
 
-#################################################################
+###########################################################################################################################################
 ##   obtain M_SIR defined in Sec2 of this paper, used for SIR estimator
 ##   X is the n*p covarate matrix, Y is the response vector, H is the number of slices                                     
-#################################################################
+###########################################################################################################################################
 sir_l<-function(X,Y,H)
 {
   p<-ncol(X)
@@ -274,9 +274,9 @@ sir_l<-function(X,Y,H)
 
 
 
-#################################################################################################################
+################################################################################################################################################
 ## run for nr times                                
-#################################################################################################################
+################################################################################################################################################
 c0Q0.rat <-c0Z0.rat<- rep(0,nr)
 c1Q1.rat <-c1Z1.rat<- rep(0,nr)
 
