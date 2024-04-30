@@ -1,0 +1,450 @@
+## The following R codes are for Gaussian copula estimators of model (4). By running this code, 
+## the last three column of Table 1 for n=400 in the paper can be derived.
+## The R codes for normal estimator and for the other models can be similarly derived. 
+
+
+rm(list=ls())
+library(MASS)
+library(dr)
+library(GA)
+library(Matrix)
+
+
+####################################################################################
+##   data generation function
+##   N: the sample size, k: random seed number, dim_cov: the dimension of covariates
+##   mu0/1: mean of zeta_0/1(X); sigma0/1: covariance of zeta_0/1(X)                                
+####################################################################################
+
+data.gen<-function(N,k,dim_cov,mu0,sigma0,mu1,sigma1)
+{
+  set.seed(k)
+  treat <- rbinom(N,size=1,prob=0.5)
+  Xtre<-round(mvtnorm::rmvnorm(N, mean = mu1, sigma = sigma1),3)
+  Xcon<-round(mvtnorm::rmvnorm(N, mean = mu0, sigma = sigma0),3)
+  dat<-Xtre*treat+Xcon*(1-treat)
+ X1 <- qf(pnorm(dat[,1]),df1=2,df2=3); X2 <- qf(pnorm(dat[,2]),df1=2,df2=3);X3 <- qf(pnorm(dat[,3]),df1=2,df2=3) 
+ X4 <- qf(pnorm(dat[,4]),df1=2,df2=3);X5 <- qf(pnorm(dat[,5]),df1=2,df2=3);X6 <- qf(pnorm(dat[,6]),df1=2,df2=3)
+ X7 <- qf(pnorm(dat[,7]),df1=2,df2=3);X8 <- qf(pnorm(dat[,8]),df1=2,df2=3); X9 <- qf(pnorm(dat[,9]),df1=2,df2=3)
+ X10 <- qf(pnorm(dat[,10]),df1=2,df2=3)
+  y0 <- y1 <- y <- c()
+  mean_eps <- rep(0,2)
+  sigma_eps <-diag(0.2,2)
+  eps <-round(mvrnorm(N, mean_eps, sigma_eps),3)
+  eps1 <- eps[,1];eps2 <- eps[,2]
+  for(i in 1:N)
+  {
+    y0[i] <- (X1[i])+1.5*(X2[i])+sin(X3[i])+1*eps1[i]
+    y1[i] <- ((X1[i])+(X2[i])+sin(X3[i]))+1*eps2[i]
+  }
+  y <- treat*y1+(1-treat)*y0
+  cbind(X1,X2,X3,X4,X5,X6,X7,X8,X9,X10,treat,y0,y1,y)
+}
+
+
+
+nsamp <- 400                                                        ## the sample size
+nr <-2000                                                              ##  the number of independent runs      
+dim_cov <-10                                                        ## the dimension of covariates
+mu0 <-rep(0,dim_cov)                                          ## mean of zeta_0(X)
+mu1 <-mu0                                                          ## mean of zeta_1(X)
+sigma0 <- diag(1,(dim_cov))                                ## covariance of zeta_0(X) 
+sigma1 <- sigma0                 
+sigma1[1,2]=sigma1[2,1] <-0.5                            ## covariance of zeta_1(X)
+
+
+ 
+
+###########################################################################################
+##   obtain the ture A0,A1, the collection of all sufficient adjustment sets for both groups                             
+###########################################################################################
+covx <- diag(1,dim_cov)
+covx0 <- covx1 <- covx           ## for model (4), to obtain A0/A1,we can let the covariance of 
+                                                 ## covariates conditional on T be this for simplicity
+Iden.mat <- diag(1,dim_cov)
+MT <- Iden.mat[,c(1,2)]           ## for model (4), to obtain A0/A1,we can let the candidate matrix M_T be this for simplicity
+MY0 <- Iden.mat[,c(1,2,3)]      ## for model (4), to obtain A0/A1,we can let the candidate matrix M_Y0 be this for simplicity
+MY1 <- Iden.mat[,c(1,2,3)]      ## for model (4), to obtain A0/A1,we can let the candidate matrix M_Y1 be this for simplicity    
+f0.true <- c();f1.true <- c()     
+
+## We use 1,2,...,2^p to encode the 2^p candidate sets, respectively. For each candidate set, it can be naturally encoded 
+## as a vector of length p containing binary indicators of whether 
+## including each covariate, e.g, when p=3, we can use (1,0,0) to denote the candidate set {X1} and (0,1,1) to denote {X2,X3}. 
+## Then we can transform the p-dimensional binary vector to its decimal representation.
+## e.g. when p=3, we can transform (1,0,0) to 0*2^0+0*2^1+1*2^2. We use 2^p to encode the empty set.   
+  
+for (i in 1:(2^dim_cov-1))
+{
+  binaryvalue <- decimal2binary(i,dim_cov)   
+  index <- which(binaryvalue==1)         ## obtain the binary vector representation of each candidate set 
+  IA <- Iden.mat[,index]
+  IAC <- Iden.mat[,-index]
+  ML00 <- (t(MY0)%*%IAC)%*%(t(IAC)%*%covx0%*%IA)%*%solve(t(IA)%*%covx0%*%IA)%*%(t(IA)%*%covx0%*%IAC)%*%(t(IAC)%*%MT) 
+  MR00 <- (t(MY0)%*%IAC)%*%(t(IAC)%*%covx0%*%IAC)%*%(t(IAC)%*%MT)
+  ML01 <- (t(MY0)%*%IAC)%*%(t(IAC)%*%covx1%*%IA)%*%solve(t(IA)%*%covx1%*%IA)%*%(t(IA)%*%covx1%*%IAC)%*%(t(IAC)%*%MT) 
+  MR01 <- (t(MY0)%*%IAC)%*%(t(IAC)%*%covx1%*%IAC)%*%(t(IAC)%*%MT)
+  f0.true[i] <- 1*((svd(ML00-MR00)$d)[1]+ (svd(ML01-MR01)$d)[1])                     ## the true value of f_0(A) defined in (15) in this paper
+  
+  ML10 <- (t(MY1)%*%IAC)%*%(t(IAC)%*%covx0%*%IA)%*%solve(t(IA)%*%covx0%*%IA)%*%(t(IA)%*%covx0%*%IAC)%*%(t(IAC)%*%MT) 
+  MR10 <- (t(MY1)%*%IAC)%*%(t(IAC)%*%covx0%*%IAC)%*%(t(IAC)%*%MT)
+  ML11 <- (t(MY1)%*%IAC)%*%(t(IAC)%*%covx1%*%IA)%*%solve(t(IA)%*%covx1%*%IA)%*%(t(IA)%*%covx1%*%IAC)%*%(t(IAC)%*%MT) 
+  MR11 <- (t(MY1)%*%IAC)%*%(t(IAC)%*%covx1%*%IAC)%*%(t(IAC)%*%MT)
+  f1.true[i] <- 1*((svd(ML10-MR10)$d)[1]+ (svd(ML11-MR11)$d)[1])                     ## the true value of f_1(A) defined in (15) in this paper                
+}
+f0.true[2^dim_cov] <-(svd(t(MY0)%*%covx0%*%MT)$d)[1]+(svd(t(MY0)%*%covx1%*%MT)$d)[1]     ## the true value of f_0(empty set) 
+                                                                                                                                                                   ##defined below (15) in this paper
+activeset0.index <- which(f0.true==0)                                                   ## A0 which contains the indices of all sufficient adjustment sets 
+f1.true[2^dim_cov] <- (svd(t(MY1)%*%covx0%*%MT)$d)[1]+(svd(t(MY1)%*%covx1%*%MT)$d)[1]    ## the true value of f_1(empty set) 
+                                                                                                                                                                   ##defined below (15) in this paper
+activeset1.index <- which(f1.true==0)                                                   ## A1
+
+
+
+######################################################################################################
+##   transform a candidate set (a vector of length p with 0/1 elements) 
+##   to the  decimal representation                                      
+######################################################################################################
+activeset2decimal <- function(set)
+{
+  decimalvalue <- 0
+  for (i in 1:length(set)) {decimalvalue <- decimalvalue+2^(dim_cov-set[i])}
+  return(decimalvalue)
+}
+
+
+index.Q1 <- index.Q0 <- activeset2decimal(c(1,2))   ## for model (4), the decimal representation of Q0 and Q1, the locally minimum sets 
+                                                                                     ## defined in De luna (2011), also see the Supplement for  its definition 
+index.Z1 <-index.Z0 <-activeset2decimal(c(1,2))      ## for model (4), the decimal representation of Z0 and Z1, the locally minimum sets 
+                                                                                    ## defined in De luna (2011)
+
+
+
+
+#########################################################################################
+##  obtain zeta_i,s(t) defined in Sec 4 of this paper, used for Gaussian copula estimators
+##  x is a vector representing the observations of the ith covariate
+##  t is the value to be evaluated                                     
+#########################################################################################
+
+transformfun <- function(t,x) ## x is the n samples of the covariate, evaluated at t
+{
+  Fnx <-ecdf(x) ## ecdf estimate
+  nsam <- length(x)
+  if (Fnx(t)<0.5/nsam) {Ftuta <- 0.5/nsam} else {if (Fnx(t)>1-0.5/nsam) {Ftuta <- 1-0.5/nsam} else {Ftuta <-Fnx(t) }}
+  return(qnorm(Ftuta))
+}
+
+#########################################################################################
+##  obtain (a,b) defined in (20) in Sec 4 of this paper, used for Gaussian copula estimators 
+##  x in the following function represents zeta_i,0(X_i) in (20) in this paper
+##  y in the following function represents zeta_i,1(X_i) in (20) in this paper   
+##  a in the following function is the threshold for truncation                               
+#########################################################################################
+find_truncated_minimizer <- function(x, y, a) {
+  n <- length(x)
+  objective <- function(theta) {
+    residuals <- y - theta[1] - theta[2]*x
+    included <- (abs(x) < a) & (abs(y) < a)
+    truncated_residuals <- residuals[included]
+    sum(truncated_residuals^2)
+  }
+  result <- optim(c(0, 1), objective)
+  return(result$par)
+}
+
+
+
+
+#########################################################################################
+##  obtain the sum for each individual combination of the elements in the vector,
+## used for the next part
+##  vector in the following function is a vector to be evaluated
+##  include_full in the following function is a binary indicator of whether including 
+##  the sum of the whole vector                               
+#########################################################################################
+calculate_combination_sums <- function(vector,include_full) {
+  # Get the length of the vector
+  n <- length(vector)
+  
+  # Initialize a list to store the sums
+  combination_sums <- vector(mode = "numeric", length = 2^n - 2+include_full)
+  
+  # Keep track of the index to insert sums into the list
+  insert_index <- 1
+  
+  # Calculate sums for all combinations without generating all combinations at once
+  for (k in 1:(n-1+include_full)) {
+    combn(vector, k, function(combination) {
+      # Calculate the sum of the current combination
+      combination_sum <- sum(combination)
+      # Insert the sum into the list
+      combination_sums[insert_index] <<- combination_sum
+      # Increment the insert index
+      insert_index <<- insert_index + 1
+    })
+  }
+  
+  return(combination_sums)
+}
+
+
+######################################################################################################
+##  obtain the dicimal representation of all the candidate sets including the ith covariate X_i 
+## used when verifying if a covariate is a collider                         
+######################################################################################################
+twopowervec <- c()
+for (i in 1:dim_cov) {twopowervec <- c(twopowervec,2^(i-1))}
+candidatesetincludeXi <- vector("list", dim_cov)
+for (jj in 1:dim_cov)
+{
+  candidatesetincludeXi[[jj]] <- c(2^(dim_cov-jj),2^(dim_cov-jj)+calculate_combination_sums(setdiff(twopowervec,2^(dim_cov-jj)),1))
+}
+
+
+
+######################################################################################################
+##   discretize y into H slices, used for Sliced inverse regression (SIR) estimator                                     
+######################################################################################################
+
+slicing<-function(y,H) 
+{
+  n<-length(y)
+  if (length(levels(as.factor(y)))>H)
+  {
+    ytilde<-rep(0,H+1)
+    ytilde[1]<-min(y)
+    for (h in 1:(H-1))
+    {
+      ytilde[h+1]<-quantile(y,h/H)
+      ytilde[h+1]<-max(y[y<=ytilde[h+1]]) ## the above may not exist in y
+      if (ytilde[h+1]==ytilde[h]) ytilde[h+1]=min(y[y>ytilde[h]])
+    }  
+  }
+  if (length(levels(as.factor(y)))<=H)
+  {
+    H <- length(levels(as.factor(y))) ## libing no
+    ytilde<-rep(0,H+1)
+    ytilde[1]=min(y)
+    for (h in 1:(H-1))
+    {
+      ytilde[h+1]<-min(y[y>ytilde[h]])
+    }
+  } 
+  ytilde[H+1]=max(y)+1
+  prop<-rep(1,H)
+  for (i in 1:H)
+  {
+    prop[i] = sum((y >= ytilde[i])&(y < ytilde[i+1]))/n
+  }
+  res<-list()
+  res$H<-H
+  res$ytilde<-ytilde
+  res$prop<-prop
+  return(res)
+}
+
+
+#################################################################
+##   obtain M_SIR defined in Sec2 of this paper, used for SIR estimator
+##   X is the n*p covarate matrix, Y is the response vector, H is the number of slices                                     
+#################################################################
+sir_l<-function(X,Y,H)
+{
+  p<-ncol(X)
+  n<-nrow(X)
+  X<-as.matrix(X,n,)
+  
+  YS<-slicing(Y,H)
+  Hy<-YS$H
+  ytilde<-YS$ytilde
+  my<-matrix(0,p,Hy)
+  XA1<-t(t(X)-apply(X,2,mean))
+  
+  for (h in 1:Hy)
+  {
+    if (sum((Y>=ytilde[h])&(Y<ytilde[h+1]))>1)
+    {my[,h]<-apply(XA1[(Y>=ytilde[h])&(Y<ytilde[h+1]),],2,mean)}
+    else{my[,h]<-XA1[(Y>=ytilde[h])&(Y<ytilde[h+1]),]}
+  }
+  list(my=my)
+}
+
+
+
+
+
+
+#################################################################################################################
+## run for nr times                                
+#################################################################################################################
+c0Q0.rat <-c0Z0.rat<- rep(0,nr)
+c1Q1.rat <-c1Z1.rat<- rep(0,nr)
+
+rho0vec <- c();omega0vec <- c()
+rho1vec <- c();omega1vec <- c()
+
+NF0vec<-NF1vec <-rep(0,nr)   
+
+
+
+for (kk in 1:nr)
+{
+  data1 <- data.gen(nsamp,kk,dim_cov,mu0,sigma0,mu1,sigma1)
+  tre.index <- which(data1[,(dim_cov+1)]==1)
+  con.index <- which(data1[,(dim_cov+1)]==0)
+  nsamp.tre <- length(tre.index)
+  nsamp.con <- length(con.index)
+  X0 <- data1[,(1:dim_cov)]
+  dim0 <- dim(X0)[2]
+
+## Gaussian copula estimation
+  X0con <- matrix(0,nrow=nsamp,ncol=dim0);X0tre <- matrix(0,nrow=nsamp,ncol=dim0)
+  X0treab <- matrix(0,nrow=nsamp,ncol=dim0)
+  for (iii in 1:dim0)
+  {
+    transformfun0 <-function(t){return(transformfun(t,X0[con.index,iii]))}
+    X0con[,iii] <- apply(t(t(X0[,iii])), 1,transformfun0)
+    transformfun1 <-function(t){return(transformfun(t,X0[tre.index,iii]))}
+    X0tre[,iii] <- apply(t(t(X0[,iii])), 1,transformfun1)
+    abvalue <- find_truncated_minimizer(X0tre[,iii], X0con[,iii], qnorm(0.975))
+    X0treab[,iii] <-abvalue[2]*X0tre[,iii]+abvalue[1]
+  }
+  X0transform <- (1-data1[,(dim_cov+1)])*X0con+data1[,(dim_cov+1)]*X0treab
+  
+  covx.est <-cov(X0transform)
+  covx0.est <-cov(X0transform[con.index,]) 
+  covx1.est <-cov(X0transform[tre.index,])
+  MY0.est<- solve(covx0.est)%*%(sir_l(X0transform[con.index,],data1[con.index,(dim_cov+4)],5)$my)
+  MY1.est<- solve(covx1.est)%*%(sir_l(X0transform[tre.index,],data1[tre.index,(dim_cov+4)],5)$my)
+  MT.est <-dr(data1[,(dim_cov+1)]~X0transform,method="save",nslices=2)$M
+  
+  
+## to estimate A0,A1
+  f0.est1 <- c()
+  f1.est1 <- c()
+  
+  for (ii in 1:(2^dim_cov-1)) 
+  {
+    binaryvalue <- decimal2binary(ii,dim_cov)   
+    index <- which(binaryvalue==1) 
+    IA <- Iden.mat[,index]
+    IAC <- Iden.mat[,-index]
+    ML0.est0 <- (t(MY0.est)%*%IAC)%*%(t(IAC)%*%covx0.est%*%IA)%*%solve(t(IA)%*%covx0.est%*%IA)%*%(t(IA)%*%covx0.est%*%IAC)%*%(t(IAC)%*%MT.est) 
+    MR0.est0 <- (t(MY0.est)%*%IAC)%*%(t(IAC)%*%covx0.est%*%IAC)%*%(t(IAC)%*%MT.est)
+    ML0.est1 <- (t(MY0.est)%*%IAC)%*%(t(IAC)%*%covx1.est%*%IA)%*%solve(t(IA)%*%covx1.est%*%IA)%*%(t(IA)%*%covx1.est%*%IAC)%*%(t(IAC)%*%MT.est) 
+    MR0.est1 <- (t(MY0.est)%*%IAC)%*%(t(IAC)%*%covx1.est%*%IAC)%*%(t(IAC)%*%MT.est)
+    f0.est1[ii] <- 1*((svd(ML0.est0-MR0.est0)$d)[1]+ (svd(ML0.est1-MR0.est1)$d)[1]) 
+    ML1.est1 <- (t(MY1.est)%*%IAC)%*%(t(IAC)%*%covx1.est%*%IA)%*%solve(t(IA)%*%covx1.est%*%IA)%*%(t(IA)%*%covx1.est%*%IAC)%*%(t(IAC)%*%MT.est) 
+    MR1.est1 <- (t(MY1.est)%*%IAC)%*%(t(IAC)%*%covx1.est%*%IAC)%*%(t(IAC)%*%MT.est)
+    ML1.est0 <- (t(MY1.est)%*%IAC)%*%(t(IAC)%*%covx0.est%*%IA)%*%solve(t(IA)%*%covx0.est%*%IA)%*%(t(IA)%*%covx0.est%*%IAC)%*%(t(IAC)%*%MT.est) 
+    MR1.est0 <- (t(MY1.est)%*%IAC)%*%(t(IAC)%*%covx0.est%*%IAC)%*%(t(IAC)%*%MT.est)
+    f1.est1[ii] <- 1*((svd(ML1.est1-MR1.est1)$d)[1]+(svd(ML1.est0-MR1.est0)$d)[1])
+  }
+  
+  f0.est1[2^dim_cov] <- (svd(t(MY0.est)%*%covx0.est%*%MT.est)$d)[1]+(svd(t(MY0.est)%*%covx1.est%*%MT.est)$d)[1] 
+  f1.est1[2^dim_cov] <-(svd(t(MY1.est)%*%covx0.est%*%MT.est)$d)[1]+(svd(t(MY1.est)%*%covx1.est%*%MT.est)$d)[1] 
+
+  sort.f0.est <- sort(f0.est1,decreasing = T)
+  ratio0 <- c()
+  cn0 <- 0.2*(log(nsamp))/sqrt(nsamp) 
+  for (i in 1:(length(sort.f0.est)-1)) {ratio0[i] <-(sort.f0.est[i+1]+cn0)/(sort.f0.est[i]+cn0) }      
+  tau0 <- which(ratio0==min(ratio0))       ## the ridge ratio estimator defined in (17) in this paper
+  activesetest0.index <- which(f0.est1<sort.f0.est[tau0])     ## the estimator of A0 
+  equalnum0 <- length(intersect(activesetest0.index, activeset0.index))
+  rho0 <- equalnum0/length(activeset0.index)   ## defined in (21)  in this paper         
+  omega0 <- equalnum0/length(activesetest0.index)  ## defined in (21) in this paper
+
+## to verify if a covariate is a collider based on the estimators of A0.
+## We first check by seeing if the empty set is included in A0. If so, and if the covariate X_i is not in A0, then X_i is a collider. 
+  collider0 <-collider1 <- c()
+  
+  if(is.element(2^dim_cov,activesetest0.index)) { 
+    for (k in 1:dim_cov) 
+    {
+      if(!(is.element(activeset2decimal(k),activesetest0.index))) {collider0 <- c(collider0,k)}
+    }
+  }
+  
+  
+## For each varibale X_i, check if it is a collider. To check if X_i is a collider, we divide the estimator of A0 into two parts: 
+## the collection of sets including X_i (denoted by activeset0in in the following) and the collection of sets not including 
+##  X_i (denoted by activeset0no in the following). Then we add X_i into the current set in activeset0no (denoted by 
+##  activeset0no_include in the following, all operations are in dicimal representation). Then we compare  activeset0in
+## with activeset0no_include, if all the elements of activeset0no_include are in activeset0in, then X_i is not a collider.
+## Otherwise, it is a collider.
+     
+  for (ii in 1:dim_cov)
+  {
+    activeset0in <- intersect(activesetest0.index,candidatesetincludeXi[[ii]])
+    activeset0no <- setdiff(activesetest0.index,activeset0in)
+    if (length(activeset0in)<length(activeset0no)) {collider0 <- c(collider0,ii)} else{
+      activeset0no_include <-activeset0no+2^(dim_cov-ii) 
+      if (!(all (activeset0no_include %in% activeset0in))) {collider0 <- c(collider0,ii)}
+    }
+  }
+  collider0unique <- unique(collider0)
+  
+  NF0vec[kk] <- length(collider0unique)    ## the number of falsely selected colliders
+  
+  
+
+  if(index.Q0 %in% activesetest0.index) {c0Q0.rat[kk] <- 1}
+  if(index.Z0 %in% activesetest0.index) {c0Z0.rat[kk] <- 1}
+  
+  
+  sort.f1.est <- sort(f1.est1,decreasing = T)
+  ratio1 <- c()
+  cn1 <- 0.2*(log(nsamp))/sqrt(nsamp) 
+  for (i in 1:(length(sort.f1.est)-1)) {ratio1[i] <-(sort.f1.est[i+1]+cn1)/(sort.f1.est[i]+cn1) }
+  tau1 <- which(ratio1==min(ratio1))
+  activesetest1.index <- which(f1.est1<sort.f1.est[tau1])
+  equalnum1 <- length(intersect(activesetest1.index, activeset1.index))
+  rho1 <- equalnum1/length(activeset1.index)  
+  omega1 <- equalnum1/length(activesetest1.index)
+  
+  
+
+## to verify if a covariate is a collider based on the estimators of A1, with the same ideas described above.
+
+  if(is.element(2^dim_cov,activesetest1.index)) { 
+    for (k in 1:dim_cov) 
+    {
+      if(!(is.element(activeset2decimal(k),activesetest1.index))) {collider1 <- c(collider1,k)}
+    }
+  }
+  
+  ## for each varibale X_i, check if it is a collider. 
+  for (ii in 1:dim_cov)
+  {
+    activeset1in <- intersect(activesetest1.index,candidatesetincludeXi[[ii]])
+    activeset1no <- setdiff(activesetest1.index,activeset1in)
+    if (length(activeset1in)<length(activeset1no)) {collider1 <- c(collider1,ii)} else{
+      activeset1no_include <-activeset1no+2^(dim_cov-ii) 
+      if (!(all (activeset1no_include %in% activeset1in))) {collider1 <- c(collider1,ii)}
+    }
+  }
+  collider1unique <- unique(collider1)
+  
+  NF1vec[kk] <- length(collider1unique)
+  
+  if(index.Q1 %in% activesetest1.index) {c1Q1.rat[kk] <- 1}
+  if(index.Z1 %in% activesetest1.index) {c1Z1.rat[kk] <- 1}
+  
+  rho0vec[kk] <- rho0;omega0vec[kk] <- omega0
+  rho1vec[kk] <- rho1;omega1vec[kk] <- omega1
+}
+
+
+
+## obtain the final results
+mean(rho0vec);mean(omega0vec);mean(rho1vec);mean(omega1vec);
+mean(c0Q0.rat);mean(c1Q1.rat);mean(c0Z0.rat);mean(c1Z1.rat);mean(NF0vec);mean(NF1vec)
+
+
+
+
+
+
+
+
+
